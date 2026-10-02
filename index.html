@@ -122,6 +122,14 @@
   .ba__tag { position: absolute; top: var(--v-4); z-index: 3; font-size: var(--v-t-sm); font-weight: 600; padding: .35em .85em; border-radius: 999px; background: var(--paper-90); }
   .ba__tag--before { right: var(--v-4); opacity: calc(1 - var(--w) * 1.4); }
   .ba__tag--after { left: var(--v-4); opacity: calc(var(--w) * 1.4); }
+  /* бегунок рукой: палец или мышь тянут шторку; после касания управляет человек, а не прокрутка */
+  .v-page .ba__frame[data-v-cue] { pointer-events: auto; }
+  .ba__frame { touch-action: pan-y; cursor: ew-resize; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .ba__frame.is-user { --w: var(--w-user, .5); }
+  .ba__frame:focus-visible { outline: 3px solid var(--v-accent); outline-offset: 4px; }
+  .ba__line::before { content: ""; position: absolute; top: 50%; left: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; }
+  .ba__hint { position: absolute; left: 50%; bottom: var(--v-4); z-index: 3; transform: translateX(-50%); font-size: var(--v-t-xs); font-weight: 600; padding: .35em .85em; border-radius: 999px; background: var(--paper-90); white-space: nowrap; pointer-events: none; transition: opacity .3s; }
+  .ba__frame.is-user .ba__hint { opacity: 0; }
   @media (max-width: 860px) {
     .ba { grid-template-columns: 1fr; gap: var(--v-5); align-content: center; padding-top: 3.5rem; }
     .ba__note { margin-top: var(--v-3) !important; }
@@ -232,7 +240,7 @@
   @media (max-width: 860px) { .cont { grid-template-columns: 1fr; } .map { min-height: 18rem; } }
 
   @media (prefers-reduced-motion: reduce) {
-    .ba__after { clip-path: inset(0 50% 0 0); } .ba__line { left: 50%; }
+    .ba__frame { --w: .5; }   /* без анимации шторка стоит посередине, но тянется пальцем */
     .steps::after { transform: none; }
   }
 </style>
@@ -318,10 +326,10 @@
         <div class="ba">
           <div class="ba__copy" data-v-cue="0 1 0 0" data-v-rise="0">
             <h2>До и после</h2>
-            <p class="soft">Листайте – и увидите, как проходит одна стрижка: колтуны разобраны, глаза открыты, форма «под мишку».</p>
+            <p class="soft">Листайте или ведите пальцем по фото – и увидите, как проходит одна стрижка: колтуны разобраны, глаза открыты, форма «под мишку».</p>
             <p class="ba__note">Демо-кадры. На сайте здесь будут работы салона: 3–6 пар «до и после».</p>
           </div>
-          <div class="ba__frame" data-v-cue="0 1 0 0" data-v-rise="0">
+          <div class="ba__frame" data-v-cue="0 1 0 0" data-v-rise="0" tabindex="0" role="slider" aria-label="Сравнить до и после стрижки" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Показано 50% фото после стрижки">
             <picture>
               <source media="(max-width: 860px)" srcset="assets/before-m.webp">
               <img src="assets/before.webp" alt="Собака до стрижки: длинная неровная шерсть, чёлка закрывает глаза" width="1600" height="1200" loading="lazy">
@@ -333,6 +341,7 @@
             <span class="ba__line" aria-hidden="true"></span>
             <span class="ba__tag ba__tag--before" aria-hidden="true">До</span>
             <span class="ba__tag ba__tag--after" aria-hidden="true">После</span>
+            <span class="ba__hint" aria-hidden="true">← тяните →</span>
           </div>
         </div>
       </div>
@@ -493,6 +502,46 @@
   (function () {
     var f = document.querySelector('#zapis form'), done = f.querySelector('.form__done');
     f.addEventListener('submit', function (e) { e.preventDefault(); done.hidden = false; });
+  })();
+
+  // До/после: бегунок тянется пальцем, мышью и стрелками. Пока к нему не прикасались, шторку ведёт прокрутка.
+  (function () {
+    var fr = document.querySelector('.ba__frame'); if (!fr) return;
+    var down = false, startX = 0, startY = 0, decided = false;
+    function set(v) {
+      v = Math.max(0, Math.min(1, v));
+      fr.style.setProperty('--w-user', v.toFixed(3));
+      fr.classList.add('is-user');
+      var n = Math.round(v * 100);
+      fr.setAttribute('aria-valuenow', n);
+      fr.setAttribute('aria-valuetext', 'Показано ' + n + '% фото после стрижки');
+    }
+    function fromX(x) { var r = fr.getBoundingClientRect(); set((x - r.left) / r.width); }
+    function current() { return parseFloat(getComputedStyle(fr).getPropertyValue('--w')) || .5; }
+    fr.addEventListener('pointerdown', function (e) {
+      down = true; decided = e.pointerType !== 'touch'; startX = e.clientX; startY = e.clientY;
+      if (decided) { fr.setPointerCapture(e.pointerId); fromX(e.clientX); }
+    });
+    fr.addEventListener('pointermove', function (e) {
+      if (!down) return;
+      if (!decided) { // на телефоне: горизонтальный жест – бегунок, вертикальный – прокрутка страницы
+        var dx = Math.abs(e.clientX - startX), dy = Math.abs(e.clientY - startY);
+        if (dx < 6 && dy < 6) return;
+        if (dy > dx) { down = false; return; }
+        decided = true; try { fr.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      fromX(e.clientX);
+    });
+    function up(e) { if (down && !decided && e.type === 'pointerup') fromX(e.clientX); down = false; }
+    fr.addEventListener('pointerup', up);
+    fr.addEventListener('pointercancel', function () { down = false; });
+    fr.addEventListener('keydown', function (e) {
+      var k = e.key, v = fr.classList.contains('is-user') ? parseFloat(fr.style.getPropertyValue('--w-user')) : current();
+      if (k === 'ArrowLeft' || k === 'ArrowDown') set(v - .05);
+      else if (k === 'ArrowRight' || k === 'ArrowUp') set(v + .05);
+      else if (k === 'Home') set(0); else if (k === 'End') set(1); else return;
+      e.preventDefault();
+    });
   })();
 </script>
 </body>
